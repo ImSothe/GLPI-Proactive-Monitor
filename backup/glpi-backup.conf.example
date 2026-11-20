@@ -1,0 +1,20 @@
+# /etc/glpi-backup.conf   (root:root 600)
+
+# Base de datos de GLPI. Con MariaDB de Ubuntu, root entra por socket sin
+# contraseña, así que no hace falta nada más.
+DB_NAME="glpi"
+# Si tu base está en otro servidor o root usa contraseña, crea un fichero
+# 600 con [client] user=... password=... host=... y pon aquí su ruta.
+MYSQL_DEFAULTS_FILE=""
+
+# Carpetas de GLPI a copiar (instalación desde el .tgz en /var/www/glpi).
+# config/ contiene glpicrypt.key: imprescindible para restaurar.
+GLPI_PATHS="/var/www/glpi/config /var/www/glpi/files /var/www/glpi/marketplace /var/www/glpi/plugins"
+
+# Dónde se guardan las copias y cuántos días se conservan
+BACKUP_DIR="/var/backups/glpi"
+KEEP_DAYS=14
+
+# Copia adicional FUERA del servidor (NAS montado por CIFS/NFS). Vacío = no.
+# Una copia que vive en el mismo disco que GLPI no te salva si se pierde la VM.
+OFFSITE_DIR=""

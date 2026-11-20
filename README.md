@@ -220,6 +220,12 @@ Known limits and residual risk:
 - **Do not deploy the installer with the tokens through a GPO startup script**: SYSVOL is readable by every domain user. Use Intune, PDQ, SCCM, or run the installer interactively / remotely.
 - The scheduled task uses `-ExecutionPolicy Bypass`. In a stricter environment, sign `GlpiMonitor.ps1` with your internal code-signing certificate and switch to `AllSigned`.
 
+## Backups of the GLPI server itself
+
+`backup/glpi-backup.sh` (with a nightly systemd timer, `backup/install.sh`) backs up the GLPI server the monitor reports to: a consistent `mariadb-dump` of the database plus `config/` (including **`glpicrypt.key`**, without which restored API tokens and stored passwords cannot be decrypted), `files/` (attachments), `marketplace/` and `plugins/`. Cache, sessions and temp folders are excluded (active user sessions do not belong in a backup). Files are written as `*.partial` and only renamed after `gzip -t` and a `Dump completed` check, so a failed run never leaves something that looks like a good backup; old copies are rotated and an optional off-site folder (NAS) gets a copy too. The monitor's backup check then opens a ticket if a nightly copy is missing.
+
+**Restore tested:** a backup taken from the lab GLPI 11.0.13 was restored into a brand-new, empty database and GLPI instance. All tickets and attachments came back, and the **same API tokens** worked against the restored instance, which proves the encryption key was restored correctly. The restore steps are in [docs/MANUAL-ES.md](docs/MANUAL-ES.md#84-restaurar-también-sirve-para-migrar-a-otro-servidor) (Spanish).
+
 ## Rollout approach
 
 The same incremental approach I use for anything that runs on every machine:
@@ -267,6 +273,7 @@ Logs: `C:\ProgramData\GlpiMonitor\GlpiMonitor.log` (rotated at 5 MB) and `/var/l
 ```
 windows/   GlpiMonitor.ps1 (agent) · Install-GlpiMonitor.ps1 · config.example.json · PSScriptAnalyzerSettings.psd1
 linux/     glpi-monitor.sh (agent) · install.sh (systemd timer) · glpi-monitor.conf.example
+backup/    glpi-backup.sh · install.sh (nightly systemd timer) · glpi-backup.conf.example
 lab/       docker-compose.yml + setup-lab.sh: GLPI 11 configured for the monitor in one command
 docs/      GLPI-setup.md · MANUAL-ES.md (Spanish install & test guide) · screenshots
 ```

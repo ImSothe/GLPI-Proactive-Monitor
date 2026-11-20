@@ -378,7 +378,74 @@ tail -f /var/log/glpi-monitor.log
 
 ---
 
-## Parte 8 · Desplegarlo en más equipos
+## Parte 8 · Copias de seguridad del servidor GLPI
+
+El script `backup/glpi-backup.sh` hace cada noche la copia que pide el SOP: base de datos **y** ficheros (adjuntos y configuración, incluida `glpicrypt.key`). El monitor vigila que se genere: si un día falta, abre un ticket.
+
+### 8.1 Instalar
+
+En el SSH del servidor GLPI, desde la carpeta del proyecto:
+
+```bash
+cd ~/GLPI-Proactive-Monitor-main/backup
+sudo ./install.sh
+sudo systemctl start glpi-backup                 # primera copia, ahora
+journalctl -u glpi-backup -n 20 --no-pager       # debe terminar con "Copia terminada correctamente"
+sudo ls -lh /var/backups/glpi
+```
+
+Se generan dos ficheros por noche (a las 02:30) y se borran los de más de 14 días:
+
+| Fichero | Contiene |
+|---|---|
+| `glpi-db_AAAAMMDD-HHMM.sql.gz` | La base de datos completa (tickets, usuarios, perfiles, formularios, reglas...) |
+| `glpi-files_AAAAMMDD-HHMM.tar.gz` | `config/` (con **glpicrypt.key**), `files/` (adjuntos), `marketplace/` y `plugins/` |
+
+> ⚠️ **Sin `glpicrypt.key` la copia no sirve del todo**: GLPI no podría descifrar los tokens de la API ni las contraseñas guardadas (correo, LDAP). Por eso va siempre incluida y los ficheros quedan con permisos `600`, solo legibles por root.
+
+Con MariaDB de Ubuntu no hace falta configurar nada: root entra por socket. Los ajustes (días a conservar, rutas, copia a un NAS) están en `/etc/glpi-backup.conf`.
+
+### 8.2 Que el monitor la vigile
+
+En `/etc/glpi-monitor/glpi-monitor.conf`:
+
+```bash
+BACKUP_CHECKS=(
+  "Volcado BD GLPI|/var/backups/glpi/glpi-db_*.sql.gz|26"
+  "Adjuntos y config GLPI|/var/backups/glpi/glpi-files_*.tar.gz|26"
+)
+```
+
+Comprueba con `sudo glpi-monitor --dry-run`: deben salir dos líneas `OK Copia ... de hace 0 h`. Si una noche falla la copia, a la mañana siguiente tendrás el ticket.
+
+### 8.3 Sacar las copias del servidor
+
+Una copia en el mismo disco no te salva si se pierde la VM o el datastore. Opciones:
+
+- **NAS:** monta una carpeta compartida (por ejemplo en `/mnt/nas/glpi`) y ponla en `OFFSITE_DIR` de `/etc/glpi-backup.conf`. El script copia ahí cada copia y también la rota.
+- **Manual (mínimo):** de vez en cuando, desde Windows: `scp angel@IP:/var/backups/glpi/* D:\CopiasGLPI\` (como root, o copia antes los ficheros a tu usuario).
+
+### 8.4 Restaurar (también sirve para migrar a otro servidor)
+
+1. Servidor nuevo con Ubuntu 24.04 y el **apartado 4 del SOP**: LAMP, base `glpi`, usuario `glpi@localhost` y GLPI 11.0.13 descomprimido en `/var/www/glpi`. **No** pases el asistente web.
+2. Copia los dos ficheros al servidor nuevo y:
+
+```bash
+sudo tar -xzf glpi-files_AAAAMMDD-HHMM.tar.gz -C /                 # recoloca config/, files/, marketplace/, plugins/
+zcat glpi-db_AAAAMMDD-HHMM.sql.gz | sudo mariadb glpi               # carga la base de datos
+sudo chown -R www-data:www-data /var/www/glpi/{config,files,marketplace,plugins}
+sudo -u www-data php /var/www/glpi/bin/console cache:clear
+sudo systemctl restart apache2
+```
+
+3. Si la contraseña del usuario `glpi@localhost` de MariaDB es distinta en el servidor nuevo, actualízala en `/var/www/glpi/config/config_db.php` (o con `sudo -u www-data php /var/www/glpi/bin/console db:configure`).
+4. Comprueba: entras con tus usuarios, abres un ticket con adjunto y lo descargas, y `sudo glpi-monitor --test` da los tres ✔ (eso confirma que `glpicrypt.key` se ha restaurado: los tokens siguen funcionando).
+
+> Haz esta prueba de restauración al menos una vez (el SOP la pide en 10.3). Una copia que nunca se ha restaurado es una suposición, no una copia.
+
+---
+
+## Parte 9 · Desplegarlo en más equipos
 
 1. **Una semana con 3-5 equipos** de distintos tipos. Ajusta servicios y umbrales: aquí aparecen los falsos positivos.
 2. **El resto**, con la herramienta de despliegue que uses (Intune, PDQ, SCCM, o PowerShell remoto):
