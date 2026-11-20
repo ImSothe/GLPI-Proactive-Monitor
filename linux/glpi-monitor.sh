@@ -383,14 +383,27 @@ glpi_login() {
 }
 glpi_logout() { [ -n "$SESSION" ] && api GET killSession >/dev/null; SESSION=""; rm -f "$HDR_FILE"; }
 
-COMPUTER_ID=""
+COMPUTER_ID=""; COMPUTER_ERR=""
 find_computer() {
   [ -n "$COMPUTER_ID" ] && return 0
-  api GET Computer -G --data-urlencode "searchText[name]=$COMPUTER_NAME" --data-urlencode "range=0-49" || true
+  COMPUTER_ERR=""
+  if ! api GET Computer -G --data-urlencode "searchText[name]=$COMPUTER_NAME" --data-urlencode "range=0-49"; then
+    # Distinguir "no tengo permiso" de "no existe": el primero se arregla en el perfil
+    if grep -q ERROR_RIGHT_MISSING <<<"$API_BODY"; then
+      COMPUTER_ERR="sin permiso para leer equipos (ERROR_RIGHT_MISSING). En GLPI: Perfiles > API Monitor > Activos > Ordenadores > 'Ver todo'"
+    else
+      COMPUTER_ERR="la búsqueda del equipo falló (HTTP $API_CODE): $(head -c 200 <<<"$API_BODY")"
+    fi
+    log WARN "No se puede vincular el ticket al equipo: $COMPUTER_ERR"
+    return
+  fi
   COMPUTER_ID="$(jq -r --arg n "$COMPUTER_NAME" \
     'if type=="array" then (map(select((.name|ascii_downcase)==($n|ascii_downcase)))[0].id // empty) else empty end' \
     <<<"$API_BODY" 2>/dev/null)"
-  [ -n "$COMPUTER_ID" ] || log WARN "Equipo '$COMPUTER_NAME' no encontrado en el inventario de GLPI: el ticket no irá vinculado"
+  if [ -z "$COMPUTER_ID" ]; then
+    COMPUTER_ERR="no existe ningún equipo llamado '$COMPUTER_NAME' (revisa Activos > Ordenadores o COMPUTER_NAME)"
+    log WARN "Equipo '$COMPUTER_NAME' no encontrado en el inventario de GLPI: el ticket no irá vinculado"
+  fi
 }
 
 ticket_status() {  # imprime el estado (1-6), 'gone' si no existe o vacío si no se pudo consultar
@@ -531,7 +544,7 @@ main() {
     echo "  ✔ Sesión iniciada (App-Token y User-Token válidos)"
     find_computer
     [ -n "$COMPUTER_ID" ] && echo "  ✔ Equipo '$COMPUTER_NAME' encontrado en el inventario (Computer #$COMPUTER_ID)" \
-                          || echo "  ⚠ Equipo '$COMPUTER_NAME' no encontrado: los tickets se crearán sin vincular"
+                          || echo "  ⚠ Equipo no vinculable: $COMPUTER_ERR. Los tickets se crearán sin vincular"
     glpi_logout; echo "  ✔ Sesión cerrada"; exit 0
   fi
 

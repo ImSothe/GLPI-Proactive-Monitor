@@ -32,9 +32,14 @@ Same page, **API clients** section → **Add**.
 | Tab / object | Rights | What it allows |
 |---|---|---|
 | Assistance > **Tickets** | *Create* + *See my tickets* | Open tickets and read the ones it opened (needed to check if a ticket is still open before creating another). |
-| Assistance > **Followups** | *See public ones* + *Add to my tickets* | Add the "still failing" and "recovered" followups. |
-| Management > **Documents** | *Read* + *Create* | Upload the diagnostic file and link it to the ticket. |
-| Assets > **Computers** | *Read* | Find the computer by name to link it to the ticket. |
+| Assistance > **Followups** | *See public ones* + *Add (requester)* | Add the "still failing" and "recovered" followups. |
+| Management > **Documents** | *See all* + *Create* | Upload the diagnostic file and link it to the ticket. |
+| Assets > **Computers** | *See all* | Find the computer by name to link it to the ticket. |
+
+Two traps found while deploying it on a real GLPI 11.0.13:
+
+- The profile **must use the standard interface**. With the simplified interface the *Assets* and *Management* tabs are not shown at all.
+- The read right is the **See all** column. **Read notes** is a different right (only the notes of the object) and does not let the agent find the computer: the agent then reports `ERROR_RIGHT_MISSING`.
 
 That is the full list. In the lab (`lab/setup-lab.sh`) these exact rights are written as bitmasks (`ticket=5`, `followup=5`, `document=5`, `computer=1`) and every API call of the monitor was tested with them.
 

@@ -11,7 +11,7 @@ Guía paso a paso para poner en marcha el monitor proactivo con tu GLPI 11: prim
 | GLPI accesible por **HTTPS** desde ese PC | Los tokens viajan en cabeceras; el agente se niega a usar HTTP salvo `localhost` |
 | *(Opcional)* un servidor Linux | Probar también el agente Linux |
 
-> Los nombres de menú están tal cual aparecen en GLPI 11 en español. Ojo: en la traducción de GLPI los tickets se llaman **Peticiones** y los equipos **Computadoras**.
+> Los nombres de menú y de casillas están tal cual aparecen en GLPI 11.0.13 en español (comprobados en una instalación real). Ojo: según la pantalla, los tickets se llaman **Peticiones** o **Solicitudes**, y los equipos **Ordenadores** o **Computadoras**.
 
 ---
 
@@ -27,34 +27,41 @@ Guía paso a paso para poner en marcha el monitor proactivo con tu GLPI 11: prim
 | Habilitar acceso con credenciales | **No** |
 | Habilitar acceso con token externo | **Sí** |
 
-Guarda.
+Activa primero **Habilitar la API REST heredada (Legacy)** y pulsa **Guardar**: las otras dos opciones y la lista de **Clientes API** solo aparecen después. GLPI mostrará un aviso naranja recomendando la API nueva; es normal. El interruptor **Habilitar API** (la API nueva) no lo usa el monitor: si nada más la necesita, apágalo.
 
 ### 1.2 Crear el cliente API (App-Token)
 
-En la misma pestaña, sección de **clientes API** → **Añadir**:
+En la misma pestaña, sección **Clientes API (API heredada / Legacy)** → **Añadir cliente API**:
 
 - **Nombre:** `Monitor proactivo`
 - **Activo:** Sí
 - **Intervalo de direcciones IPv4:** el rango de tu red interna (por ejemplo `192.168.1.1` – `192.168.1.254`). Para la prueba puedes poner solo la IP del PC de prueba.
 - **Token de aplicación:** marca **Regenerar** y guarda.
 
-👉 Copia el **Token de aplicación** en un bloc de notas. Es el **App-Token**.
+👉 Vuelve a abrir el cliente y copia el **Token de aplicación**. Es el **App-Token**.
+
+> Si el agente va a estar **en el propio servidor de GLPI**, no crees un cliente: usa *full access from localhost* (ver Parte 7.3).
 
 ### 1.3 Crear el perfil de mínimo privilegio
 
 **Administración > Perfiles > Añadir**
 
 - **Nombre:** `API Monitor`
-- **Interfaz:** Interfaz estándar
+- **Interfaz del perfil:** **Interfaz estándar**
+- **Perfil predeterminado:** sin marcar
 
-Guarda, abre el perfil y marca **solo** esto (todo lo demás vacío):
+> ⚠️ Comprueba la interfaz en la pestaña **Perfil**. Si queda en *Interfaz simplificada*, el perfil **no muestra** las pestañas *Activos* ni *Gestión* y no podrás dar los permisos de equipos y documentos.
 
-| Pestaña | Objeto | Marcar |
+Guarda, abre el perfil y marca **solo** estas casillas (columna exacta de GLPI 11), pulsando **Guardar** en cada pestaña:
+
+| Pestaña | Fila | Columnas a marcar |
 |---|---|---|
-| Soporte | Peticiones (tickets) | **Crear** y **Ver mis tickets** |
-| Soporte | Seguimientos | **Ver los públicos** y **Añadir a mis tickets** |
-| Gestión | Documento | **Lectura** y **Crear** |
-| Activos | Computadora | **Lectura** |
+| Soporte | Solicitudes | **Ver mis peticiones** y **Crear** |
+| Soporte | Followups | **Ver los públicos** y **Agregar (solicitante)** |
+| Gestión | Documentos | **Ver todo** y **Crear** |
+| Activos | Ordenadores | **Ver todo** |
+
+> ⚠️ **"Leer notas" no es "Lectura".** Solo da acceso a las notas del objeto, no al objeto. La columna de lectura en GLPI 11 se llama **Ver todo**. No marques tampoco *Ver asignados* ni *Ver propios*. En *Soporte* deja vacía la sección **Asociación**.
 
 ¿Por qué tan poco? Si alguien robase el token de un PC, con este perfil solo podría abrir tickets. No puede ver tickets de otros, cerrar nada, borrar nada ni tocar el inventario.
 
@@ -64,9 +71,12 @@ Guarda, abre el perfil y marca **solo** esto (todo lo demás vacío):
 
 - **Usuario:** `svc-glpi-monitor`
 - **Contraseña:** una larga y aleatoria (no se usa nunca)
-- Guarda y entra en el usuario:
-  - Pestaña de **habilitaciones/perfiles**: añade el perfil `API Monitor` en la entidad raíz, **Recursivo: Sí**. Si tiene otro perfil por defecto (Self-Service), quítaselo.
-  - En la ficha del usuario, apartado **API token**: marca **Regenerar** y guarda.
+- Abajo del formulario: **Perfil** `API Monitor`, **Entidad** la raíz, **Recursivo: Sí** → **Añadir**.
+- Entra en el usuario:
+  - **Perfil predeterminado:** `API Monitor`.
+  - Revisa que el navegador **no haya autorrellenado** campos (por ejemplo *Teléfono 2* con `glpi`, o la contraseña con la del administrador). Si es así, bórralos y usa **Cambiar contraseña**.
+  - Apartado **Contraseñas y claves de acceso > API token**: marca **Regenerar** y **Guardar**. Después copia el token con el icono del portapapeles.
+  - Pestaña **Autorizaciones**: debe haber **una sola línea**: tu entidad → `API Monitor (R)`. La **(R)** es *Recursivo*. Si aparece *Self-Service*, bórrala.
 
 👉 Copia el **API token**. Es el **User-Token**.
 
@@ -77,7 +87,7 @@ Guarda, abre el perfil y marca **solo** esto (todo lo demás vacío):
 
 ### 1.6 Comprobar que el PC de prueba está en el inventario
 
-Busca el nombre del PC en **Activos > Computadoras**. Si lo inventaría el agente de GLPI, ya estará. El nombre tiene que coincidir con el nombre del equipo en Windows (`hostname`). Si no está, el ticket se crea igualmente pero sin vincular al equipo.
+Busca el nombre del PC en **Activos > Ordenadores**. Si lo inventaría el agente de GLPI, ya estará. El nombre tiene que coincidir con el nombre del equipo en Windows (`hostname`). Si no está, el ticket se crea igualmente pero sin vincular al equipo.
 
 ---
 
@@ -285,6 +295,7 @@ Comprueba la configuración con `& $m -DryRun`.
 | `ERROR_WRONG_APP_TOKEN_PARAMETER` | App-Token mal copiado | Reinstala pegando el token de la Parte 1.2 |
 | `ERROR_NOT_ALLOWED_IP` | La IP del PC no está en el rango del cliente API | Amplía el intervalo IPv4 en la Parte 1.2 |
 | `ERROR_GLPI_LOGIN_USER_TOKEN` | User-Token mal copiado o regenerado | Reinstala con el token actual de `svc-glpi-monitor` |
+| `Equipo no vinculable: sin permiso para leer equipos` | Falta el permiso de lectura de ordenadores (a menudo se marca *Leer notas* por error) | Perfiles > API Monitor > Activos > Ordenadores > **Ver todo** |
 | `ERROR_RIGHT_MISSING` o HTTP 403 | Falta un permiso en el perfil, o el perfil no está en la entidad | Revisa la tabla de la Parte 1.3 y que sea **recursivo** |
 | `API disabled` | API apagada | Parte 1.1 |
 | `Equipo '...' no encontrado en el inventario` | El nombre en GLPI no coincide | Corrige el nombre en GLPI o pon `"ComputerName": "NOMBRE-EN-GLPI"` en el config |
@@ -296,25 +307,72 @@ Si algo no encaja, el log (`C:\ProgramData\GlpiMonitor\GlpiMonitor.log`) siempre
 
 ---
 
-## Parte 7 · Linux (opcional)
+## Parte 7 · Linux (y el propio servidor GLPI)
 
-En el servidor, como root:
+### 7.1 Subir el proyecto al servidor
 
-```bash
-sudo apt install -y curl jq              # en RHEL/Rocky: dnf install -y curl jq
-cd GLPI-Proactive-Monitor/linux
-sudo ./install.sh
-sudo nano /etc/glpi-monitor/glpi-monitor.conf
+La consola de VirtualBox no permite pegar: trabaja por **SSH** desde Windows (`ssh usuario@IP`; para pegar, clic derecho). Para subir el ZIP, desde **otra** ventana de PowerShell **en Windows** (no dentro del SSH):
+
+```powershell
+scp "C:\Users\TU_USUARIO\Downloads\GLPI-Proactive-Monitor-main.zip" usuario@IP_DEL_SERVIDOR:~
 ```
 
-Rellena `GLPI_URL`, `GLPI_APP_TOKEN`, `GLPI_USER_TOKEN`, `GROUPS_ID_ASSIGN` y `SERVICES` (por ejemplo `"ssh cron nginx"`). Después las mismas pruebas:
+### 7.2 Instalar
+
+En el SSH:
 
 ```bash
-sudo glpi-monitor --test
-sudo glpi-monitor --dry-run
-sudo glpi-monitor --simulate all
-sudo glpi-monitor                         # cierra el simulacro
-systemctl list-timers glpi-monitor.timer  # próxima ejecución
+sudo apt update && sudo apt install -y curl jq unzip      # RHEL/Rocky: dnf install -y curl jq unzip
+unzip -o GLPI-Proactive-Monitor-main.zip && cd GLPI-Proactive-Monitor-main/linux
+sudo ./install.sh
+sudo nano /etc/glpi-monitor/glpi-monitor.conf              # guardar: Ctrl+O, Enter · salir: Ctrl+X
+```
+
+El timer arranca al instalar: si la primera ejecución ocurre antes de editar el fichero, deja un error en el log. Es normal.
+
+### 7.3 Caso especial: el agente en el propio servidor de GLPI
+
+Si el servidor que vigilas **es el de GLPI**, usa `localhost`. Ventajas: funciona aunque GLPI aún no tenga HTTPS, y no cambia nada si la máquina cambia de IP (por ejemplo al migrarla de VirtualBox a ESXi).
+
+- En GLPI, en vez de crear un cliente API nuevo, regenera el **Token de aplicación** del cliente **full access from localhost** (rango `127.0.0.1`): ese token solo sirve desde el propio servidor.
+- En el `.conf`:
+
+```bash
+GLPI_URL="http://localhost/apirest.php"     # http, no https, mientras no haya certificado
+GLPI_APP_TOKEN="<App-Token>"
+GLPI_USER_TOKEN="<User-Token>"
+COMPUTER_NAME="cpg"                         # sin la # delante; igual que en Activos > Ordenadores
+SERVICES="apache2 mariadb cron"
+AUTO_RESTART_SERVICES=true
+```
+
+> **Por qué `AUTO_RESTART_SERVICES=true` aquí:** si Apache o MariaDB caen, GLPI no puede recibir el ticket. Con el reinicio automático el agente levanta el servicio y **entonces** abre el ticket *"caído — reiniciado automáticamente"*. Si el reinicio fallara, solo quedaría en el log local: es el límite de vigilar un servidor desde sí mismo.
+
+En otros servidores Linux, usa la URL HTTPS de GLPI y pon en `SERVICES` lo que importe en cada uno (por ejemplo `"ssh cron nginx"`).
+
+### 7.4 Pruebas
+
+```bash
+sudo glpi-monitor --test                  # tres ✔: sesión, equipo encontrado, sesión cerrada
+sudo glpi-monitor --dry-run               # todo OK si el servidor está sano
+sudo glpi-monitor --simulate all          # 4 tickets [SIMULACRO] con adjunto
+sudo glpi-monitor --simulate all          # otra vez: no debe crear ninguno ("sigue abierto")
+sudo glpi-monitor                         # los 4 reciben "Recuperado automáticamente"
+```
+
+Fallo real, sin riesgo:
+
+```bash
+sudo systemctl stop cron
+sudo glpi-monitor                         # lo arranca solo y abre "Servicio cron caído — reiniciado automáticamente"
+systemctl is-active cron                  # active
+sudo glpi-monitor                         # seguimiento de recuperado en ese ticket
+```
+
+Servicio automático y log:
+
+```bash
+systemctl list-timers glpi-monitor.timer  # próxima ejecución (cada hora)
 tail -f /var/log/glpi-monitor.log
 ```
 

@@ -541,10 +541,19 @@ function Find-Computer {
     if ($script:ComputerId) { return }
     $q = 'Computer?searchText%5Bname%5D={0}&range=0-49' -f [uri]::EscapeDataString($script:ComputerName)
     $r = Invoke-GlpiApi -Method GET -Path $q
-    if ($r.Ok) {
-        $match = @($r.Data) | Where-Object { $_.name -eq $script:ComputerName } | Select-Object -First 1
-        if ($match) { $script:ComputerId = [int]$match.id; return }
+    if (-not $r.Ok) {
+        # Distinguir "no tengo permiso" de "no existe": el primero se arregla en el perfil
+        if ($r.Raw -match 'ERROR_RIGHT_MISSING') {
+            $script:ComputerError = "sin permiso para leer equipos (ERROR_RIGHT_MISSING). En GLPI: Perfiles > API Monitor > Activos > Ordenadores > 'Ver todo'"
+        } else {
+            $script:ComputerError = "la búsqueda del equipo falló (HTTP $($r.Code)): $(Get-ShortText $r.Raw)"
+        }
+        Write-MonitorLog WARN "No se puede vincular el ticket al equipo: $script:ComputerError"
+        return
     }
+    $match = @($r.Data) | Where-Object { $_.name -eq $script:ComputerName } | Select-Object -First 1
+    if ($match) { $script:ComputerId = [int]$match.id; return }
+    $script:ComputerError = "no existe ningún equipo llamado '$script:ComputerName' (revisa Activos > Ordenadores o ComputerName en config.json)"
     Write-MonitorLog WARN "Equipo '$script:ComputerName' no encontrado en el inventario de GLPI: el ticket no irá vinculado"
 }
 
@@ -716,6 +725,7 @@ if (-not $script:ComputerName) { $script:ComputerName = [Environment]::MachineNa
 $script:BaseUrl = ([string](Get-Setting $script:Config 'Glpi.Url' '')).TrimEnd('/')
 $script:SessionToken = $null
 $script:ComputerId = $null
+$script:ComputerError = ''
 $script:TicketsCreated = 0
 
 if (-not $DryRun) {
@@ -746,7 +756,7 @@ try {
         Write-Host '  OK  Sesión iniciada (App-Token y User-Token válidos)'
         Find-Computer
         if ($script:ComputerId) { Write-Host "  OK  Equipo '$script:ComputerName' encontrado en el inventario (Computer #$script:ComputerId)" }
-        else { Write-Host "  !!  Equipo '$script:ComputerName' no encontrado: los tickets se crearán sin vincular" }
+        else { Write-Host "  !!  Equipo no vinculable: $script:ComputerError. Los tickets se crearán sin vincular" }
         Disconnect-Glpi
         Write-Host '  OK  Sesión cerrada'
         exit 0
