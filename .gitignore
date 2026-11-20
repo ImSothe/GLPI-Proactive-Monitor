@@ -1,0 +1,8 @@
+# Real configs contain GLPI tokens and real diagnostics contain hostnames/IPs: never commit them
+config.json
+*.conf
+!linux/glpi-monitor.conf.example
+state.json
+diag_*.txt
+*.log
+.env*

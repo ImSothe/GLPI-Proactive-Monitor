@@ -1,0 +1,57 @@
+{
+  "Glpi": {
+    "Url": "https://glpi.example.local/apirest.php",
+    "AppToken": "set-by-Install-GlpiMonitor.ps1",
+    "UserToken": "set-by-Install-GlpiMonitor.ps1",
+    "EntitiesId": null,
+    "ItilCategoriesId": null,
+    "RequestTypesId": null,
+    "GroupsIdAssign": null
+  },
+  "ComputerName": null,
+  "Disk": {
+    "Enabled": true,
+    "FreePercentMin": 10,
+    "FreePercentCritical": 5,
+    "ExcludeDrives": []
+  },
+  "Services": {
+    "Names": ["Spooler", "EventLog", "Dnscache"],
+    "AutoRestart": false
+  },
+  "Reboot": {
+    "Enabled": true,
+    "PendingMaxDays": 14,
+    "MaxUptimeDays": 0,
+    "IncludeFileRenameOperations": false
+  },
+  "Backups": [
+    {
+      "Name": "Nightly image to NAS",
+      "Enabled": false,
+      "Type": "File",
+      "Path": "\\\\nas01\\backups\\%COMPUTERNAME%\\*.vhdx",
+      "MaxAgeHours": 26
+    },
+    {
+      "Name": "Windows Server Backup",
+      "Enabled": false,
+      "Type": "WindowsServerBackup",
+      "MaxAgeHours": 26
+    },
+    {
+      "Name": "Backup software (success event)",
+      "Enabled": false,
+      "Type": "EventLog",
+      "LogName": "Application",
+      "ProviderName": "YourBackupSoftware",
+      "EventId": 0,
+      "MaxAgeHours": 26
+    }
+  ],
+  "Behaviour": {
+    "FollowupEveryHours": 24,
+    "NotifyRecovery": true,
+    "MaxTicketsPerRun": 5
+  }
+}

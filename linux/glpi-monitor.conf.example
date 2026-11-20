@@ -1,0 +1,43 @@
+# /etc/glpi-monitor/glpi-monitor.conf   (permisos: root:root 600 — contiene tokens)
+
+# --- Conexión con GLPI (API REST: Configuración > General > API) -------------
+GLPI_URL="https://glpi.miempresa.local/apirest.php"
+GLPI_APP_TOKEN="pega_aqui_el_app_token"
+GLPI_USER_TOKEN="pega_aqui_el_token_del_usuario_svc-glpi-monitor"
+# CA interna si GLPI usa un certificado propio (nunca desactives la verificación TLS)
+GLPI_CA_BUNDLE=""
+
+# Nombre con el que el equipo aparece en el inventario de GLPI (para vincular el ticket)
+# COMPUTER_NAME="srv-web01"
+
+# --- Clasificación del ticket (IDs de GLPI; vacío = valor por defecto) -------
+ENTITIES_ID=""
+ITILCATEGORIES_ID=""    # p. ej. categoría "Monitorización"
+REQUESTTYPES_ID=""      # p. ej. origen "Monitorización automática"
+GROUPS_ID_ASSIGN=""     # p. ej. grupo "Sistemas N2"
+
+# --- Disco ---------------------------------------------------------------------
+DISK_FREE_PCT_MIN=10
+DISK_FREE_PCT_CRITICAL=5
+DISK_EXCLUDE_FSTYPES="tmpfs devtmpfs squashfs overlay iso9660 udf efivarfs"
+
+# --- Servicios críticos (nombres systemd separados por espacios) ---------------
+SERVICES="ssh cron"
+AUTO_RESTART_SERVICES=false   # true = intenta reiniciarlo antes de escalar
+
+# --- Reinicios -----------------------------------------------------------------
+REBOOT_PENDING_MAX_DAYS=14    # ticket si hay reinicio pendiente desde hace más de N días
+MAX_UPTIME_DAYS=0             # 0 = desactivado
+
+# --- Copias de seguridad: "Nombre|/ruta/patrón|horas máximas" -------------------
+BACKUP_CHECKS=(
+  # "Dump MySQL|/backup/mysql/*.sql.gz|26"
+  # "Restic NAS|/mnt/nas/backups/srv-web01/*.log|26"
+)
+
+# --- Comportamiento --------------------------------------------------------------
+FOLLOWUP_EVERY_HOURS=24       # seguimiento si el problema persiste
+NOTIFY_RECOVERY=true          # seguimiento automático cuando se recupera
+MAX_TICKETS_PER_RUN=5         # freno de seguridad contra "tormentas" de tickets
+STATE_DIR="/var/lib/glpi-monitor"
+LOG_FILE="/var/log/glpi-monitor.log"

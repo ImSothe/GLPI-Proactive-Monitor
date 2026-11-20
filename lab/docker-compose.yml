@@ -1,0 +1,40 @@
+# Laboratorio GLPI 11 para probar el monitor SIN tocar producción.
+# Uso:  ./setup-lab.sh   (levanta esto y lo configura solo)
+# Web:  http://localhost:8080   (glpi / glpi)
+
+services:
+  glpi-db:
+    image: mariadb:11.4
+    container_name: glpi-db
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpw
+      MARIADB_DATABASE: glpi
+      MARIADB_USER: glpi
+      MARIADB_PASSWORD: glpipw
+    volumes:
+      - glpi-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+
+  glpi:
+    image: glpi/glpi:11.0
+    container_name: glpi
+    depends_on:
+      glpi-db:
+        condition: service_healthy
+    environment:
+      GLPI_DB_HOST: glpi-db
+      GLPI_DB_PORT: 3306
+      GLPI_DB_NAME: glpi
+      GLPI_DB_USER: glpi
+      GLPI_DB_PASSWORD: glpipw
+    ports:
+      - "8080:80"
+    volumes:
+      - glpi-data:/var/glpi
+
+volumes:
+  glpi-db:
+  glpi-data:
