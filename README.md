@@ -92,6 +92,8 @@ The agents keep a small `state.json` with the ticket opened for each problem. Th
 
 ## Quick start
 
+> 🇪🇸 Step-by-step installation and test manual in Spanish: [docs/MANUAL-ES.md](docs/MANUAL-ES.md).
+
 ### 1. Prepare GLPI
 
 Create the API client, the least-privilege profile and the technical user: [docs/GLPI-setup.md](docs/GLPI-setup.md) (about 10 minutes).
@@ -265,7 +267,7 @@ Logs: `C:\ProgramData\GlpiMonitor\GlpiMonitor.log` (rotated at 5 MB) and `/var/l
 windows/   GlpiMonitor.ps1 (agent) · Install-GlpiMonitor.ps1 · config.example.json · PSScriptAnalyzerSettings.psd1
 linux/     glpi-monitor.sh (agent) · install.sh (systemd timer) · glpi-monitor.conf.example
 lab/       docker-compose.yml + setup-lab.sh: GLPI 11 configured for the monitor in one command
-docs/      GLPI-setup.md · screenshots
+docs/      GLPI-setup.md · MANUAL-ES.md (Spanish install & test guide) · screenshots
 ```
 
 ## License

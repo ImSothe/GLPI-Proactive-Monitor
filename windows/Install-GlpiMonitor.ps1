@@ -64,6 +64,8 @@ New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 & icacls.exe $InstallDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "icacls falló al proteger $InstallDir" }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'GlpiMonitor.ps1') -Destination $InstallDir -Force
+# Quita la marca "descargado de Internet" (ZIP de GitHub) para que se pueda ejecutar
+Unblock-File -LiteralPath (Join-Path $InstallDir 'GlpiMonitor.ps1')
 
 # --- 2. Configuración (se conserva la existente al actualizar) ----------------
 $configPath = Join-Path $InstallDir 'config.json'
