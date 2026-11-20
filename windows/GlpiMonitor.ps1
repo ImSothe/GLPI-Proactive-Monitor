@@ -49,12 +49,13 @@ $script:Version = '1.0.0'
 if (-not $ConfigPath) { $ConfigPath = Join-Path $env:ProgramData 'GlpiMonitor\config.json' }
 
 # ============================================================== utilidades ==
-function Write-Log {
+function Write-MonitorLog {
     param([string]$Level, [string]$Message)
     $line = '{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $Message
     Write-Host $line
     if (-not $DryRun -and $script:LogFile) {
-        try { Add-Content -Path $script:LogFile -Value $line -Encoding UTF8 } catch { }
+        try { Add-Content -Path $script:LogFile -Value $line -Encoding UTF8 }
+        catch { Write-Verbose "No se pudo escribir en el log: $($_.Exception.Message)" }
     }
 }
 
@@ -85,13 +86,13 @@ function Unprotect-Secret {
     return $Value
 }
 
-function Format-Bytes([double]$Bytes) {
+function Format-ByteSize([double]$Bytes) {
     $units = 'B', 'KB', 'MB', 'GB', 'TB'; $i = 0
     while ($Bytes -ge 1024 -and $i -lt $units.Count - 1) { $Bytes /= 1024; $i++ }
     return ('{0:N1} {1}' -f $Bytes, $units[$i])
 }
 
-function ConvertTo-Html([string]$Text) { return [System.Net.WebUtility]::HtmlEncode($Text) }
+function ConvertTo-HtmlEncoded([string]$Text) { return [System.Net.WebUtility]::HtmlEncode($Text) }
 function Get-Now { return (Get-Date).ToString('o') }
 function ConvertFrom-IsoDate([string]$Value) {
     return [datetime]::Parse($Value, [Globalization.CultureInfo]::InvariantCulture,
@@ -117,7 +118,7 @@ function Read-State {
                 }
             }
             if ($j.meta) { foreach ($p in $j.meta.PSObject.Properties) { $s.meta[$p.Name] = [string]$p.Value } }
-        } catch { Write-Log WARN "state.json ilegible, se regenera: $($_.Exception.Message)" }
+        } catch { Write-MonitorLog WARN "state.json ilegible, se regenera: $($_.Exception.Message)" }
     }
     return $s
 }
@@ -156,7 +157,7 @@ function Test-Disk {
             Add-Result -Key $key -Status FAIL -Urgency $urg `
                 -Title ('Disco {0} casi lleno ({1}% libre)' -f $d.DeviceID, $free) `
                 -Detail ('Unidad {0} ({1}): {2}% libre — {3} libres de {4}. Umbral: {5}% (crítico: {6}%).' -f `
-                    $d.DeviceID, $d.VolumeName, $free, (Format-Bytes $d.FreeSpace), (Format-Bytes $d.Size), $min, $crit) `
+                    $d.DeviceID, $d.VolumeName, $free, (Format-ByteSize $d.FreeSpace), (Format-ByteSize $d.Size), $min, $crit) `
                 -Action 'Revisar en el adjunto las carpetas temporales/caché que más ocupan. Liberar con el Liberador de espacio (cleanmgr), vaciar SoftwareDistribution\Download y perfiles antiguos, o ampliar el volumen.' `
                 -Evidence $key
         } else {
@@ -166,7 +167,7 @@ function Test-Disk {
 }
 
 # ------------------------------------------------------------ 2) SERVICIOS --
-function Test-Services {
+function Test-Service {
     $names = @(Get-Setting $script:Config 'Services.Names' @())
     if ($names.Count -eq 0) { return }
     $autoRestart = [bool](Get-Setting $script:Config 'Services.AutoRestart' $false)
@@ -187,11 +188,11 @@ function Test-Services {
         $previous = $svc.Status
         $startType = $svc.StartType
         if ($autoRestart -and -not $DryRun -and $startType -ne 'Disabled') {
-            Write-Log INFO "Servicio $n en estado '$previous': intento de arranque automático"
+            Write-MonitorLog INFO "Servicio $n en estado '$previous': intento de arranque automático"
             try {
                 Start-Service -Name $n -ErrorAction Stop
                 $svc.WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
-            } catch { Write-Log WARN "No se pudo arrancar $($n): $($_.Exception.Message)" }
+            } catch { Write-MonitorLog WARN "No se pudo arrancar $($n): $($_.Exception.Message)" }
             $svc.Refresh()
             if ($svc.Status -eq 'Running') {
                 Add-Result -Key $key -Status FAIL -Urgency 2 -Title "Servicio $n caído — arrancado automáticamente" `
@@ -208,7 +209,7 @@ function Test-Services {
 }
 
 # --------------------------------------------------- 3) REINICIO PENDIENTE --
-function Get-PendingRebootReasons {
+function Get-PendingRebootReason {
     $reasons = @()
     if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') {
         $reasons += 'Component Based Servicing (instalación de componentes/parches)'
@@ -220,7 +221,7 @@ function Get-PendingRebootReasons {
         $active = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName' -ErrorAction Stop).ComputerName
         $pendingName = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName' -ErrorAction Stop).ComputerName
         if ($active -ne $pendingName) { $reasons += "Cambio de nombre pendiente ($active -> $pendingName)" }
-    } catch { }
+    } catch { Write-Verbose "No se pudo leer el nombre de equipo pendiente: $($_.Exception.Message)" }
     # PendingFileRenameOperations da muchos falsos positivos (antivirus, instaladores): opcional
     if (Get-Setting $script:Config 'Reboot.IncludeFileRenameOperations' $false) {
         $pfro = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations
@@ -236,7 +237,7 @@ function Test-PendingReboot {
 
     $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
     $uptimeDays = [int][math]::Floor(((Get-Date) - $os.LastBootUpTime).TotalDays)
-    $reasons = Get-PendingRebootReasons
+    $reasons = Get-PendingRebootReason
 
     if ($reasons.Count -gt 0) {
         # ¿Desde cuándo? Lo más antiguo entre lo que ya teníamos registrado y el primer
@@ -272,7 +273,7 @@ function Test-PendingReboot {
 }
 
 # ------------------------------------------------- 4) COPIAS DE SEGURIDAD --
-function Test-Backups {
+function Test-Backup {
     foreach ($b in @(Get-Setting $script:Config 'Backups' @())) {
         if ($null -eq $b -or -not (Get-Setting $b 'Enabled' $true)) { continue }
         $name = Get-Setting $b 'Name' 'Copia'
@@ -388,12 +389,12 @@ function New-EvidenceFile {
             Equipo          = $cs.Name; Dominio = $cs.Domain; Modelo = "$($cs.Manufacturer) $($cs.Model)"
             SistemaOperativo = "$($os.Caption) $($os.Version)"; UltimoArranque = $os.LastBootUpTime
             UsuarioActivo   = $cs.UserName; IPs = $ips
-            RAM             = '{0} libres de {1}' -f (Format-Bytes ($os.FreePhysicalMemory * 1KB)), (Format-Bytes $cs.TotalPhysicalMemory)
+            RAM             = '{0} libres de {1}' -f (Format-ByteSize ($os.FreePhysicalMemory * 1KB)), (Format-ByteSize $cs.TotalPhysicalMemory)
         } | Format-List
     }
     Add-Section $sb 'Discos' {
         Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | Select-Object DeviceID, VolumeName,
-            @{n = 'Tamaño'; e = { Format-Bytes $_.Size } }, @{n = 'Libre'; e = { Format-Bytes $_.FreeSpace } },
+            @{n = 'Tamaño'; e = { Format-ByteSize $_.Size } }, @{n = 'Libre'; e = { Format-ByteSize $_.FreeSpace } },
             @{n = '% Libre'; e = { [math]::Round($_.FreeSpace * 100 / $_.Size, 1) } } | Format-Table -AutoSize
     }
 
@@ -410,7 +411,7 @@ function New-EvidenceFile {
             $rows += Get-ChildItem -Path "$driveLetter\Users\*\AppData\Local\Temp" -Directory -Force -ErrorAction SilentlyContinue |
                 ForEach-Object { [pscustomobject]@{ Carpeta = $_.FullName; Tamaño = Get-FolderSize $_.FullName } }
             $rows | Sort-Object Tamaño -Descending |
-                Select-Object Carpeta, @{n = 'Tamaño'; e = { Format-Bytes $_.Tamaño } } | Format-Table -AutoSize
+                Select-Object Carpeta, @{n = 'Tamaño'; e = { Format-ByteSize $_.Tamaño } } | Format-Table -AutoSize
         }
         Add-Section $sb "Perfiles de usuario en $driveLetter" {
             Get-CimInstance Win32_UserProfile | Where-Object { -not $_.Special -and $_.LocalPath -like "$driveLetter*" } |
@@ -431,7 +432,7 @@ function New-EvidenceFile {
                 Select-Object -First 30 TimeCreated, Id, Message | Format-List
         }
     } elseif ($spec -eq 'reboot') {
-        Add-Section $sb 'Motivos de reinicio pendiente' { Get-PendingRebootReasons }
+        Add-Section $sb 'Motivos de reinicio pendiente' { Get-PendingRebootReason }
         Add-Section $sb 'Últimos parches instalados' {
             Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 10 HotFixID, Description, InstalledOn | Format-Table -AutoSize
         }
@@ -528,7 +529,7 @@ function Connect-Glpi {
         $script:SessionToken = $r.Data.session_token
         return $true
     }
-    Write-Log ERROR "No se pudo iniciar sesión en GLPI (HTTP $($r.Code)): $(Get-ShortText $r.Raw)"
+    Write-MonitorLog ERROR "No se pudo iniciar sesión en GLPI (HTTP $($r.Code)): $(Get-ShortText $r.Raw)"
     return $false
 }
 
@@ -544,7 +545,7 @@ function Find-Computer {
         $match = @($r.Data) | Where-Object { $_.name -eq $script:ComputerName } | Select-Object -First 1
         if ($match) { $script:ComputerId = [int]$match.id; return }
     }
-    Write-Log WARN "Equipo '$script:ComputerName' no encontrado en el inventario de GLPI: el ticket no irá vinculado"
+    Write-MonitorLog WARN "Equipo '$script:ComputerName' no encontrado en el inventario de GLPI: el ticket no irá vinculado"
 }
 
 function Get-TicketStatus([int]$TicketId) {
@@ -573,14 +574,14 @@ function Send-Document([int]$TicketId, [string]$FilePath, [string]$DisplayName) 
     $mp.Add($filePart)
 
     $r = Invoke-GlpiApi -Method POST -Path 'Document' -Content $mp
-    if ($r.Ok) { Write-Log INFO "Diagnóstico adjuntado al ticket #$TicketId (documento #$($r.Data.id))" }
-    else { Write-Log WARN "No se pudo adjuntar el diagnóstico al ticket #$TicketId (HTTP $($r.Code)): $(Get-ShortText $r.Raw)" }
+    if ($r.Ok) { Write-MonitorLog INFO "Diagnóstico adjuntado al ticket #$TicketId (documento #$($r.Data.id))" }
+    else { Write-MonitorLog WARN "No se pudo adjuntar el diagnóstico al ticket #$TicketId (HTTP $($r.Code)): $(Get-ShortText $r.Raw)" }
     Remove-Item -LiteralPath $FilePath -Force -ErrorAction SilentlyContinue
 }
 
 function Add-Followup([int]$TicketId, [string]$Html) {
     $r = Invoke-GlpiApi -Method POST -Path 'ITILFollowup' -Json @{ input = @{ itemtype = 'Ticket'; items_id = $TicketId; content = $Html } }
-    if (-not $r.Ok) { Write-Log WARN "No se pudo añadir seguimiento al ticket #$TicketId (HTTP $($r.Code))" }
+    if (-not $r.Ok) { Write-MonitorLog WARN "No se pudo añadir seguimiento al ticket #$TicketId (HTTP $($r.Code))" }
 }
 
 function Get-TicketHtml([object]$Check) {
@@ -592,13 +593,13 @@ function Get-TicketHtml([object]$Check) {
     return @"
 <p><strong>Alerta proactiva</strong> detectada automáticamente por <em>GlpiMonitor</em>, antes de que el usuario lo notifique.</p>
 <table border="1" cellpadding="4" cellspacing="0">
-<tr><td style="white-space:nowrap"><strong>Equipo</strong></td><td>$(ConvertTo-Html $script:ComputerName) ($(ConvertTo-Html $ip))</td></tr>
-<tr><td style="white-space:nowrap"><strong>Sistema</strong></td><td>$(ConvertTo-Html $os)</td></tr>
-<tr><td style="white-space:nowrap"><strong>Comprobación</strong></td><td>$(ConvertTo-Html $Check.Key)</td></tr>
-<tr><td style="white-space:nowrap"><strong>Detalle</strong></td><td>$(ConvertTo-Html $Check.Detail)</td></tr>
+<tr><td style="white-space:nowrap"><strong>Equipo</strong></td><td>$(ConvertTo-HtmlEncoded $script:ComputerName) ($(ConvertTo-HtmlEncoded $ip))</td></tr>
+<tr><td style="white-space:nowrap"><strong>Sistema</strong></td><td>$(ConvertTo-HtmlEncoded $os)</td></tr>
+<tr><td style="white-space:nowrap"><strong>Comprobación</strong></td><td>$(ConvertTo-HtmlEncoded $Check.Key)</td></tr>
+<tr><td style="white-space:nowrap"><strong>Detalle</strong></td><td>$(ConvertTo-HtmlEncoded $Check.Detail)</td></tr>
 <tr><td style="white-space:nowrap"><strong>Detectado</strong></td><td>$(Get-Date -Format 'dd/MM/yyyy HH:mm')</td></tr>
 </table>
-<p><strong>Acción sugerida:</strong> $(ConvertTo-Html $Check.Action)</p>
+<p><strong>Acción sugerida:</strong> $(ConvertTo-HtmlEncoded $Check.Action)</p>
 <p>Se adjunta el diagnóstico completo del equipo. <small>GlpiMonitor $script:Version (Windows)</small></p>
 "@
 }
@@ -620,11 +621,11 @@ function New-GlpiTicket([object]$Check) {
     }
     $r = Invoke-GlpiApi -Method POST -Path 'Ticket' -Json @{ input = $ticketInput }
     if (-not $r.Ok -or -not $r.Data.id) {
-        Write-Log ERROR "No se pudo crear el ticket para $($Check.Key) (HTTP $($r.Code)): $(Get-ShortText $r.Raw)"
+        Write-MonitorLog ERROR "No se pudo crear el ticket para $($Check.Key) (HTTP $($r.Code)): $(Get-ShortText $r.Raw)"
         return $false
     }
     $tid = [int]$r.Data.id
-    Write-Log INFO "Ticket #$tid creado: $($Check.Title)"
+    Write-MonitorLog INFO "Ticket #$tid creado: $($Check.Title)"
     Send-Document -TicketId $tid -FilePath (New-EvidenceFile $Check) -DisplayName "Diagnóstico $script:ComputerName · $($Check.Key)"
     $now = Get-Now
     $script:State.checks[$Check.Key] = @{ ticket_id = $tid; opened = $now; last_followup = $now; title = $Check.Title }
@@ -649,30 +650,30 @@ function Invoke-FailedCheck([object]$Check) {
         $tid = $entry.ticket_id
         $st = Get-TicketStatus $tid
         if ($null -eq $st) {
-            Write-Log WARN "No se pudo consultar el ticket #$tid; no se crea otro para evitar duplicados"
+            Write-MonitorLog WARN "No se pudo consultar el ticket #$tid; no se crea otro para evitar duplicados"
             return
         }
         if ($st -ne 'gone' -and $st -lt 5) {
             $hours = [double](Get-Setting $script:Config 'Behaviour.FollowupEveryHours' 24)
             $last = if ($entry.last_followup) { ConvertFrom-IsoDate $entry.last_followup } else { [datetime]::MinValue }
             if (((Get-Date) - $last).TotalHours -ge $hours) {
-                Add-Followup $tid "<p><strong>El problema continúa.</strong> $(ConvertTo-Html $Check.Detail)</p><p>Se adjunta diagnóstico actualizado.</p>"
+                Add-Followup $tid "<p><strong>El problema continúa.</strong> $(ConvertTo-HtmlEncoded $Check.Detail)</p><p>Se adjunta diagnóstico actualizado.</p>"
                 Send-Document -TicketId $tid -FilePath (New-EvidenceFile $Check) -DisplayName "Diagnóstico actualizado $script:ComputerName · $($Check.Key)"
                 $entry.last_followup = Get-Now
                 Save-State
-                Write-Log INFO "Ticket #$tid sigue abierto: seguimiento añadido"
+                Write-MonitorLog INFO "Ticket #$tid sigue abierto: seguimiento añadido"
             } else {
-                Write-Log INFO "Ticket #$tid sigue abierto para $($Check.Key): sin acción (próximo seguimiento en < $hours h)"
+                Write-MonitorLog INFO "Ticket #$tid sigue abierto para $($Check.Key): sin acción (próximo seguimiento en < $hours h)"
             }
             return
         }
-        Write-Log INFO "El ticket #$tid de $($Check.Key) está resuelto/cerrado pero el problema ha vuelto: se abre uno nuevo"
+        Write-MonitorLog INFO "El ticket #$tid de $($Check.Key) está resuelto/cerrado pero el problema ha vuelto: se abre uno nuevo"
         [void]$script:State.checks.Remove($Check.Key)
         Save-State
     }
     $max = [int](Get-Setting $script:Config 'Behaviour.MaxTicketsPerRun' 5)
     if ($script:TicketsCreated -ge $max) {
-        Write-Log WARN "Límite de $max tickets por ejecución alcanzado; $($Check.Key) queda para la siguiente"
+        Write-MonitorLog WARN "Límite de $max tickets por ejecución alcanzado; $($Check.Key) queda para la siguiente"
         return
     }
     if (New-GlpiTicket $Check) { $script:TicketsCreated++ }
@@ -687,8 +688,8 @@ function Invoke-RecoveredCheck([object]$Check) {
         $st = Get-TicketStatus $entry.ticket_id
         if ($null -ne $st -and $st -ne 'gone' -and $st -lt 5) {
             Add-Followup $entry.ticket_id ("<p><strong>&#10004; Recuperado automáticamente.</strong> {0} ({1}).</p><p>El técnico puede verificar y resolver el ticket.</p>" -f `
-                (ConvertTo-Html $Check.Detail), (Get-Date -Format 'dd/MM/yyyy HH:mm'))
-            Write-Log INFO "$($Check.Key) recuperado: seguimiento añadido al ticket #$($entry.ticket_id)"
+                (ConvertTo-HtmlEncoded $Check.Detail), (Get-Date -Format 'dd/MM/yyyy HH:mm'))
+            Write-MonitorLog INFO "$($Check.Key) recuperado: seguimiento añadido al ticket #$($entry.ticket_id)"
         }
     }
     [void]$script:State.checks.Remove($Check.Key)
@@ -721,20 +722,20 @@ if (-not $DryRun) {
     try {
         $script:AppToken = Unprotect-Secret (Get-Setting $script:Config 'Glpi.AppToken' '')
         $script:UserToken = Unprotect-Secret (Get-Setting $script:Config 'Glpi.UserToken' '')
-    } catch { Write-Log ERROR "No se pudieron descifrar los tokens (¿config copiado de otro equipo?): $($_.Exception.Message)"; exit 2 }
+    } catch { Write-MonitorLog ERROR "No se pudieron descifrar los tokens (¿config copiado de otro equipo?): $($_.Exception.Message)"; exit 2 }
     if (-not $script:BaseUrl -or -not $script:AppToken -or -not $script:UserToken) {
-        Write-Log ERROR 'Faltan Glpi.Url, Glpi.AppToken o Glpi.UserToken en la configuración'; exit 2
+        Write-MonitorLog ERROR 'Faltan Glpi.Url, Glpi.AppToken o Glpi.UserToken en la configuración'; exit 2
     }
     if ($script:BaseUrl -notmatch '^https://') {
-        if ($script:BaseUrl -match '^http://(localhost|127\.0\.0\.1)') { Write-Log WARN 'Usando HTTP sin cifrar (solo aceptable en laboratorio)' }
-        else { Write-Log ERROR 'Glpi.Url debe usar HTTPS: los tokens viajan en cabeceras'; exit 2 }
+        if ($script:BaseUrl -match '^http://(localhost|127\.0\.0\.1)') { Write-MonitorLog WARN 'Usando HTTP sin cifrar (solo aceptable en laboratorio)' }
+        else { Write-MonitorLog ERROR 'Glpi.Url debe usar HTTPS: los tokens viajan en cabeceras'; exit 2 }
     }
     Initialize-Http
 }
 
 # Evita ejecuciones simultáneas (tarea programada + ejecución manual)
 $mutex = New-Object System.Threading.Mutex($false, 'Global\GlpiMonitor')
-if (-not $mutex.WaitOne(0)) { Write-Log WARN 'Ya hay otra ejecución en curso; salgo'; exit 0 }
+if (-not $mutex.WaitOne(0)) { Write-MonitorLog WARN 'Ya hay otra ejecución en curso; salgo'; exit 0 }
 
 try {
     $script:State = Read-State
@@ -754,8 +755,8 @@ try {
     if ($Simulate) {
         Invoke-Simulation
     } else {
-        foreach ($checkFn in 'Test-Disk', 'Test-Services', 'Test-PendingReboot', 'Test-Backups') {
-            try { & $checkFn } catch { Write-Log ERROR "Error en la comprobación $($checkFn): $($_.Exception.Message)" }
+        foreach ($checkFn in 'Test-Disk', 'Test-Service', 'Test-PendingReboot', 'Test-Backup') {
+            try { & $checkFn } catch { Write-MonitorLog ERROR "Error en la comprobación $($checkFn): $($_.Exception.Message)" }
         }
         # Los simulacros anteriores se dan por recuperados en una ejecución normal
         foreach ($k in @($script:State.checks.Keys)) {
@@ -768,7 +769,7 @@ try {
     foreach ($res in $script:Results) {
         if ($res.Status -eq 'FAIL') {
             $fails++
-            Write-Log WARN "FALLO $($res.Key): $($res.Title)"
+            Write-MonitorLog WARN "FALLO $($res.Key): $($res.Title)"
             Invoke-FailedCheck $res
         } else {
             if ($DryRun) { Write-Host "  OK   $($res.Detail)" }
@@ -776,7 +777,7 @@ try {
         }
     }
     Disconnect-Glpi
-    Write-Log INFO "Ejecución terminada: $($script:Results.Count) comprobaciones, $fails fallos, $script:TicketsCreated tickets nuevos"
+    Write-MonitorLog INFO "Ejecución terminada: $($script:Results.Count) comprobaciones, $fails fallos, $script:TicketsCreated tickets nuevos"
     if ($fails -gt 0) { exit 1 } else { exit 0 }
 } finally {
     $mutex.ReleaseMutex()

@@ -233,7 +233,7 @@ The same incremental approach I use for anything that runs on every machine:
 Everything below ran against **GLPI 11.0.13** (official `glpi/glpi:11.0` Docker image + MariaDB 11.4), using the **least-privilege API user**, not an administrator.
 
 - **Linux agent, end to end.** Disk below threshold, service stopped, service that does not exist, stale backup, empty-backup path, pending reboot dated from `/var/run/reboot-required`, ticket storm limit (6 failures → 5 tickets, 1 deferred to the next run), no duplicates on the second run, 24 h follow-up with a fresh attachment, recovery follow-up, new ticket after a technician solved it but the failure came back, group assignment, simulation and its automatic closure. Tickets, links, attachments and follow-ups were checked in the GLPI web UI and in the database. `shellcheck` clean. (The container has no systemd, so `systemctl`/`journalctl` were stubbed to play a failed nginx; the screenshots come from that run.)
-- **Windows agent, API side.** Run in **PowerShell 7 on Linux** against the same GLPI: syntax parse of both scripts, `-TestConnection`, `-DryRun`, `-Simulate`, ticket creation with linked computer and group, the multipart document upload, deduplication, recovery follow-ups and the `File` backup check. These tests found and fixed two real bugs (a PowerShell case-insensitive variable collision and an array-unwrapping issue).
+- **Windows agent, API side.** Run in **PowerShell 7 on Linux** against the same GLPI: syntax parse of both scripts, `-TestConnection`, `-DryRun`, `-Simulate`, ticket creation with linked computer and group, the multipart document upload, deduplication, recovery follow-ups and the `File` backup check. These tests found and fixed two real bugs (a PowerShell case-insensitive variable collision and an array-unwrapping issue). **PSScriptAnalyzer** reports 0 findings with [`windows/PSScriptAnalyzerSettings.psd1`](windows/PSScriptAnalyzerSettings.psd1), which documents the three style rules excluded on purpose.
 - **Not tested yet on a real Windows machine:** the Windows-only parts, i.e. the CIM disk check, `Get-Service`, pending-reboot registry keys, Event Log queries, Windows Server Backup, DPAPI, the ACL and scheduled task from the installer, and running under **Windows PowerShell 5.1** specifically. That is exactly why the rollout starts with `-DryRun` on one pilot machine. If something fails there, please open an issue.
 
 ## Roadmap
@@ -262,7 +262,7 @@ Logs: `C:\ProgramData\GlpiMonitor\GlpiMonitor.log` (rotated at 5 MB) and `/var/l
 ## Repository layout
 
 ```
-windows/   GlpiMonitor.ps1 (agent) · Install-GlpiMonitor.ps1 · config.example.json
+windows/   GlpiMonitor.ps1 (agent) · Install-GlpiMonitor.ps1 · config.example.json · PSScriptAnalyzerSettings.psd1
 linux/     glpi-monitor.sh (agent) · install.sh (systemd timer) · glpi-monitor.conf.example
 lab/       docker-compose.yml + setup-lab.sh: GLPI 11 configured for the monitor in one command
 docs/      GLPI-setup.md · screenshots
